@@ -1,245 +1,179 @@
 #include <Arduino.h>
-#include <TFT_eSPI.h>
-#include <SPI.h>
-#include "hardware_config.h"
+#define LGFX_USE_V1
+#include <LovyanGFX.hpp>
 
-// TFT_eSPIオブジェクト作成
-TFT_eSPI tft = TFT_eSPI();
+// ESP32-S3 + GC9A01用の設定クラス
+class LGFX : public lgfx::LGFX_Device
+{
+  lgfx::Panel_GC9A01      _panel_instance;
+  lgfx::Bus_SPI           _bus_instance;
 
-// 関数の前方宣言
-void displayWelcomeScreen();
-void colorTest();
-void shapeTest();
-void textTest();
-void circularPatternTest();
-void backlightTest();
+public:
+  LGFX(void)
+  {
+    {
+      // SPIバスの設定
+      auto cfg = _bus_instance.config();
+      cfg.spi_host = SPI3_HOST;     // ESP32-S3のSPI3を使用
+      cfg.spi_mode = 0;             // SPI通信モード (0 ~ 3)
+      cfg.freq_write = 40000000;    // 送信時のSPIクロック (最大80MHz, 80MHzを整数で割った値に丸められます)
+      cfg.freq_read  = 16000000;    // 受信時のSPIクロック
+      cfg.spi_3wire  = true;        // 受信をMOSIピンで行う場合はtrueを設定
+      cfg.use_lock   = true;        // トランザクションロックを使用する場合はtrueを設定
+      cfg.dma_channel = SPI_DMA_CH_AUTO; // 使用するDMAチャンネル (0=DMA不使用 / 1=1ch / 2=2ch / SPI_DMA_CH_AUTO=自動設定)
+
+      // SPIピン設定
+      cfg.pin_sclk = 12;            // SPIのSCLKピン番号
+      cfg.pin_mosi = 11;            // SPIのMOSIピン番号
+      cfg.pin_miso = -1;            // SPIのMISOピン番号 (-1 = disable)
+      cfg.pin_dc   = 9;             // SPIのD/Cピン番号  (-1 = disable)
+
+      _bus_instance.config(cfg);
+      _panel_instance.setBus(&_bus_instance);
+    }
+
+    {
+      // 表示パネルの設定
+      auto cfg = _panel_instance.config();
+
+      cfg.pin_cs           =    10;  // CSが接続されているピン番号   (-1 = disable)
+      cfg.pin_rst          =     8;  // RSTが接続されているピン番号  (-1 = disable)
+      cfg.pin_busy         =    -1;  // BUSYが接続されているピン番号 (-1 = disable)
+
+      // 以下はパネル毎に設定する解像度
+      cfg.panel_width      =   240;  // 実際に表示可能な幅
+      cfg.panel_height     =   240;  // 実際に表示可能な高さ
+      cfg.offset_x         =     0;  // パネルのX方向オフセット量
+      cfg.offset_y         =     0;  // パネルのY方向オフセット量
+      cfg.offset_rotation  =     0;  // 回転方向の値のオフセット 0~7 (4~7は上下反転)
+      cfg.dummy_read_pixel =     8;  // ピクセル読出し前のダミーリードのビット数
+      cfg.dummy_read_bits  =     1;  // ピクセル以外のデータ読出し前のダミーリードのビット数
+      cfg.readable         =  true;  // データ読出しが可能な場合 trueに設定
+      cfg.invert           = false;  // パネルの明暗が反転してしまう場合 trueに設定
+      cfg.rgb_order        = false;  // パネルの赤と青が入れ替わってしまう場合 trueに設定
+      cfg.dlen_16bit       = false;  // 16bitパラレルやSPIでデータ長を16bit単位で送信するパネルの場合 trueに設定
+      cfg.bus_shared       =  true;  // SDカードとバスを共有している場合 trueに設定(drawJpgFile等でバス制御を行います)
+
+      _panel_instance.config(cfg);
+    }
+
+    setPanel(&_panel_instance);
+  }
+};
+
+// LovyanGFXのインスタンス作成
+LGFX display;
 
 void setup() {
-  // シリアル通信開始
   Serial.begin(115200);
-  delay(1000);
-  Serial.println("ESP32-S3 + GC9A01 テスト開始");
+  delay(2000);
   
-  // バックライトPWM設定
-  ledcSetup(BACKLIGHT_CHANNEL, BACKLIGHT_FREQUENCY, BACKLIGHT_RESOLUTION);
-  ledcAttachPin(DISPLAY_BL, BACKLIGHT_CHANNEL);
-  ledcWrite(BACKLIGHT_CHANNEL, BACKLIGHT_MAX_DUTY); // 最大輝度
-  
+  Serial.println("=== ESP32-S3 + GC9A01 LovyanGFX テスト ===");
+
   // ディスプレイ初期化
-  tft.init();
-  tft.setRotation(0); // 0-3で回転設定
-  tft.fillScreen(COLOR_BLACK);
-  
+  display.init();
   Serial.println("ディスプレイ初期化完了");
-  Serial.printf("画面サイズ: %dx%d\n", SCREEN_WIDTH, SCREEN_HEIGHT);
+
+  // 画面クリア
+  display.fillScreen(TFT_BLACK);
   
-  // 初期テスト表示
-  displayWelcomeScreen();
+  // 基本情報表示
+  Serial.printf("画面サイズ: %dx%d\n", display.width(), display.height());
+  
+  // カラーテスト
+  Serial.println("カラーテスト開始");
+  
+  display.fillScreen(TFT_RED);
+  Serial.println("赤色表示");
+  delay(1000);
+  
+  display.fillScreen(TFT_GREEN);
+  Serial.println("緑色表示");
+  delay(1000);
+  
+  display.fillScreen(TFT_BLUE);
+  Serial.println("青色表示");
+  delay(1000);
+  
+  // テキスト表示テスト
+  display.fillScreen(TFT_BLACK);
+  display.setTextColor(TFT_WHITE);
+  display.setTextSize(3);
+  display.drawCentreString("ESP32-S3", 120, 80, 1);
+  display.setTextSize(2);
+  display.drawCentreString("LovyanGFX", 120, 120, 1);
+  display.drawCentreString("GC9A01", 120, 150, 1);
+  
+  Serial.println("初期テスト完了");
 }
 
 void loop() {
-  // テストパターン1: カラーテスト
-  colorTest();
-  delay(3000);
+  // 図形描画デモ
+  static unsigned long lastUpdate = 0;
+  static int demoStep = 0;
   
-  // テストパターン2: 図形テスト
-  shapeTest();
-  delay(3000);
-  
-  // テストパターン3: テキストテスト
-  textTest();
-  delay(3000);
-  
-  // テストパターン4: 円形パターン（丸型ディスプレイの特徴を活かす）
-  circularPatternTest();
-  delay(3000);
-  
-  // バックライト調光テスト
-  backlightTest();
-  delay(2000);
-}
-
-void displayWelcomeScreen() {
-  tft.fillScreen(COLOR_BLACK);
-  
-  // タイトル表示
-  tft.setTextColor(COLOR_WHITE, COLOR_BLACK);
-  tft.setTextSize(2);
-  tft.drawCentreString("ESP32-S3", SCREEN_WIDTH/2, 60, 2);
-  tft.drawCentreString("GC9A01", SCREEN_WIDTH/2, 90, 2);
-  tft.drawCentreString("TEST", SCREEN_WIDTH/2, 120, 2);
-  
-  // 外周円を描画
-  tft.drawCircle(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, SCREEN_RADIUS-2, COLOR_WHITE);
-  tft.drawCircle(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, SCREEN_RADIUS-5, COLOR_BLUE);
-  
-  Serial.println("ウェルカム画面表示完了");
-}
-
-void colorTest() {
-  Serial.println("カラーテスト開始");
-  
-  // 基本色のテスト
-  uint16_t colors[] = {COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW, 
-                       COLOR_CYAN, COLOR_MAGENTA, COLOR_WHITE, COLOR_BLACK};
-  const char* colorNames[] = {"RED", "GREEN", "BLUE", "YELLOW", 
-                             "CYAN", "MAGENTA", "WHITE", "BLACK"};
-  
-  for (int i = 0; i < 8; i++) {
-    tft.fillScreen(colors[i]);
-    tft.setTextColor(colors[i] == COLOR_BLACK ? COLOR_WHITE : COLOR_BLACK);
-    tft.setTextSize(2);
-    tft.drawCentreString(colorNames[i], SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10, 2);
-    delay(500);
-  }
-}
-
-void shapeTest() {
-  Serial.println("図形テスト開始");
-  tft.fillScreen(COLOR_BLACK);
-  
-  // 中心座標
-  int centerX = SCREEN_WIDTH / 2;
-  int centerY = SCREEN_HEIGHT / 2;
-  
-  // 同心円を描画
-  for (int r = 20; r <= 100; r += 20) {
-    uint16_t color = random(0xFFFF);
-    tft.drawCircle(centerX, centerY, r, color);
-    delay(300);
-  }
-  
-  delay(1000);
-  
-  // 塗りつぶし円
-  tft.fillScreen(COLOR_BLACK);
-  for (int r = 100; r >= 20; r -= 20) {
-    uint16_t color = random(0xFFFF);
-    tft.fillCircle(centerX, centerY, r, color);
-    delay(300);
-  }
-  
-  delay(1000);
-  
-  // 直線パターン
-  tft.fillScreen(COLOR_BLACK);
-  for (int i = 0; i < 360; i += 15) {
-    float rad = i * PI / 180;
-    int x = centerX + cos(rad) * 100;
-    int y = centerY + sin(rad) * 100;
-    uint16_t color = tft.color565(i % 256, (i * 2) % 256, (i * 3) % 256);
-    tft.drawLine(centerX, centerY, x, y, color);
-    delay(100);
-  }
-}
-
-void textTest() {
-  Serial.println("テキストテスト開始");
-  tft.fillScreen(COLOR_BLACK);
-  
-  // 異なるサイズのテキスト
-  tft.setTextColor(COLOR_WHITE);
-  
-  tft.setTextSize(1);
-  tft.drawCentreString("Size 1 Text", SCREEN_WIDTH/2, 30, 1);
-  
-  tft.setTextSize(2);
-  tft.drawCentreString("Size 2", SCREEN_WIDTH/2, 70, 2);
-  
-  tft.setTextSize(3);
-  tft.drawCentreString("S3", SCREEN_WIDTH/2, 110, 2);
-  
-  // カラフルなテキスト
-  const char* text = "COLOR TEST";
-  uint16_t colors[] = {COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW, 
-                       COLOR_CYAN, COLOR_MAGENTA, COLOR_ORANGE, COLOR_PURPLE, 
-                       COLOR_WHITE, COLOR_WHITE};
-  
-  tft.setTextSize(1);
-  for (int i = 0; i < strlen(text); i++) {
-    tft.setTextColor(colors[i]);
-    tft.drawChar(text[i], 80 + i * 12, 170, 2);
-  }
-  
-  // 数値表示テスト
-  tft.setTextColor(COLOR_GREEN);
-  tft.setTextSize(2);
-  for (int i = 0; i <= 100; i += 10) {
-    tft.fillRect(80, 200, 80, 20, COLOR_BLACK);
-    tft.drawCentreString(String(i) + "%", SCREEN_WIDTH/2, 200, 2);
-    delay(200);
-  }
-}
-
-void circularPatternTest() {
-  Serial.println("円形パターンテスト開始");
-  tft.fillScreen(COLOR_BLACK);
-  
-  int centerX = SCREEN_WIDTH / 2;
-  int centerY = SCREEN_HEIGHT / 2;
-  
-  // 時計の文字盤風パターン
-  for (int hour = 0; hour < 12; hour++) {
-    float angle = (hour * 30 - 90) * PI / 180; // 12時を上にするため-90度
-    int x1 = centerX + cos(angle) * 90;
-    int y1 = centerY + sin(angle) * 90;
-    int x2 = centerX + cos(angle) * 100;
-    int y2 = centerY + sin(angle) * 100;
-    
-    tft.drawLine(x1, y1, x2, y2, COLOR_WHITE);
-    
-    // 数字表示
-    int textX = centerX + cos(angle) * 75;
-    int textY = centerY + sin(angle) * 75;
-    tft.setTextColor(COLOR_YELLOW);
-    tft.setTextSize(1);
-    tft.drawCentreString(String(hour == 0 ? 12 : hour), textX, textY, 2);
-  }
-  
-  // 中心点
-  tft.fillCircle(centerX, centerY, 5, COLOR_RED);
-  
-  // 秒針の動作をシミュレート
-  for (int sec = 0; sec < 60; sec++) {
-    // 前の秒針を消去
-    if (sec > 0) {
-      float prevAngle = ((sec - 1) * 6 - 90) * PI / 180;
-      int prevX = centerX + cos(prevAngle) * 80;
-      int prevY = centerY + sin(prevAngle) * 80;
-      tft.drawLine(centerX, centerY, prevX, prevY, COLOR_BLACK);
+  if (millis() - lastUpdate > 3000) {
+    switch (demoStep) {
+      case 0:
+        // 同心円デモ
+        display.fillScreen(TFT_BLACK);
+        for (int r = 20; r <= 120; r += 20) {
+          uint16_t color = display.color565(random(256), random(256), random(256));
+          display.drawCircle(120, 120, r, color);
+        }
+        Serial.println("同心円デモ");
+        break;
+        
+      case 1:
+        // 塗りつぶし円デモ
+        display.fillScreen(TFT_BLACK);
+        for (int r = 100; r >= 20; r -= 20) {
+          uint16_t color = display.color565(random(256), random(256), random(256));
+          display.fillCircle(120, 120, r, color);
+        }
+        Serial.println("塗りつぶし円デモ");
+        break;
+        
+      case 2:
+        // 放射線デモ
+        display.fillScreen(TFT_BLACK);
+        for (int i = 0; i < 360; i += 15) {
+          float rad = i * PI / 180;
+          int x = 120 + cos(rad) * 100;
+          int y = 120 + sin(rad) * 100;
+          uint16_t color = display.color565(i % 256, (i * 2) % 256, (i * 3) % 256);
+          display.drawLine(120, 120, x, y, color);
+        }
+        Serial.println("放射線デモ");
+        break;
+        
+      case 3:
+        // 時計風デモ
+        display.fillScreen(TFT_BLACK);
+        // 外枠
+        display.drawCircle(120, 120, 110, TFT_WHITE);
+        display.drawCircle(120, 120, 105, TFT_WHITE);
+        
+        // 時刻表示
+        for (int hour = 1; hour <= 12; hour++) {
+          float angle = (hour * 30 - 90) * PI / 180;
+          int x = 120 + cos(angle) * 85;
+          int y = 120 + sin(angle) * 85;
+          display.setTextColor(TFT_YELLOW);
+          display.setTextSize(2);
+          display.drawCentreString(String(hour), x, y, 1);
+        }
+        
+        // 針（現在時刻風）
+        display.drawLine(120, 120, 120, 60, TFT_RED);   // 短針
+        display.drawLine(120, 120, 170, 120, TFT_GREEN); // 長針
+        display.fillCircle(120, 120, 5, TFT_WHITE);      // 中心点
+        
+        Serial.println("時計デモ");
+        break;
     }
     
-    // 新しい秒針を描画
-    float angle = (sec * 6 - 90) * PI / 180;
-    int x = centerX + cos(angle) * 80;
-    int y = centerY + sin(angle) * 80;
-    tft.drawLine(centerX, centerY, x, y, COLOR_RED);
-    
-    delay(100);
+    demoStep = (demoStep + 1) % 4;
+    lastUpdate = millis();
   }
-}
-
-void backlightTest() {
-  Serial.println("バックライトテスト開始");
-  tft.fillScreen(COLOR_WHITE);
-  tft.setTextColor(COLOR_BLACK);
-  tft.setTextSize(2);
-  tft.drawCentreString("BACKLIGHT", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20, 2);
-  tft.drawCentreString("TEST", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 10, 2);
-  
-  // 暗くする
-  for (int brightness = 255; brightness >= 50; brightness -= 10) {
-    ledcWrite(BACKLIGHT_CHANNEL, brightness);
-    delay(50);
-  }
-  
-  delay(1000);
-  
-  // 明るくする
-  for (int brightness = 50; brightness <= 255; brightness += 10) {
-    ledcWrite(BACKLIGHT_CHANNEL, brightness);
-    delay(50);
-  }
-  
-  Serial.println("すべてのテスト完了");
 }
